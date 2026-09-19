@@ -69,8 +69,13 @@ if (WIN32)
   endif()
 endif()
 
+set(app_bundle_type "")
+if (APPLE)
+  set(app_bundle_type MACOSX_BUNDLE)
+endif()
+
 add_executable(
-    ${target_name} WIN32 ${gui_only_sources} ${gui_only_ui_files}
+    ${target_name} WIN32 ${app_bundle_type} ${gui_only_sources} ${gui_only_ui_files}
     ${resource_files} ${win32_resource_file})
 target_link_libraries(
     ${target_name}
@@ -79,7 +84,19 @@ target_include_directories(
     ${target_name}
     PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}"
     "$<TARGET_PROPERTY:TIFF::TIFF,INTERFACE_INCLUDE_DIRECTORIES>")
-install(TARGETS ${target_name} RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+if (APPLE)
+  set_target_properties(
+      ${target_name}
+      PROPERTIES
+      MACOSX_BUNDLE_GUI_IDENTIFIER "org.scantailor.Advanced"
+      MACOSX_BUNDLE_BUNDLE_NAME "ScanTailor Advanced"
+      MACOSX_BUNDLE_SHORT_VERSION_STRING "${VERSION}"
+      MACOSX_BUNDLE_BUNDLE_VERSION "${VERSION}")
+endif()
+
+install(TARGETS ${target_name}
+    RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
+    BUNDLE DESTINATION ".")
 
 if (Qt6_FOUND AND WIN32)
   #manage plugins with windeployqt.
@@ -90,6 +107,23 @@ if (Qt6_FOUND AND WIN32)
     COMMENT "deploy qt files alongside binary (e.g. plugins)"
   )
   install(CODE "execute_process(COMMAND \"${QT_BINDIR}/windeployqt\" \"\$\{CMAKE_INSTALL_PREFIX\}\")")
+endif()
+
+if (Qt6_FOUND AND APPLE)
+  add_custom_command(
+    TARGET ${target_name}
+    POST_BUILD
+    COMMAND "${QT_BINDIR}/macdeployqt" "$<TARGET_BUNDLE_DIR:${target_name}>"
+            -libpath=/opt/homebrew/opt/webp/lib
+            -libpath=/opt/homebrew/opt/brotli/lib
+    COMMAND /usr/bin/install_name_tool -change @rpath/libsharpyuv.0.dylib @loader_path/libsharpyuv.0.dylib "$<TARGET_BUNDLE_DIR:${target_name}>/Contents/Frameworks/libwebp.7.dylib"
+    COMMAND /usr/bin/install_name_tool -change @rpath/libsharpyuv.0.dylib @loader_path/libsharpyuv.0.dylib "$<TARGET_BUNDLE_DIR:${target_name}>/Contents/Frameworks/libwebpdemux.2.dylib"
+    COMMAND /usr/bin/install_name_tool -change @rpath/libsharpyuv.0.dylib @loader_path/libsharpyuv.0.dylib "$<TARGET_BUNDLE_DIR:${target_name}>/Contents/Frameworks/libwebpmux.3.dylib"
+    COMMAND /usr/bin/install_name_tool -change @rpath/libwebp.7.dylib @loader_path/libwebp.7.dylib "$<TARGET_BUNDLE_DIR:${target_name}>/Contents/Frameworks/libwebpdemux.2.dylib"
+    COMMAND /usr/bin/install_name_tool -change @rpath/libwebp.7.dylib @loader_path/libwebp.7.dylib "$<TARGET_BUNDLE_DIR:${target_name}>/Contents/Frameworks/libwebpmux.3.dylib"
+    COMMAND /usr/bin/install_name_tool -change @rpath/libbrotlicommon.1.dylib @loader_path/libbrotlicommon.1.dylib "$<TARGET_BUNDLE_DIR:${target_name}>/Contents/Frameworks/libbrotlidec.1.dylib"
+    COMMAND codesign --force --deep --sign - "$<TARGET_BUNDLE_DIR:${target_name}>"
+    COMMENT "Deploying and ad-hoc signing the macOS app bundle")
 endif()
 
 translation_sources(${target_name} ${gui_only_sources} ${gui_only_ui_files})
